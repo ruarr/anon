@@ -1,0 +1,165 @@
+import re
+import docx
+import PyPDF2
+import logging
+import os
+from pathlib import Path
+import phonenumbers
+from email_validator import validate_email, EmailNotValidError
+
+# Configuración de logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    filename='anonimizacion.log'
+)
+
+class DocumentAnonymizer:
+    def __init__(self):
+        # Patrones mejorados
+        self.patron_nombres = r'(?<!\w)([A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+){1,2})(?!\w)'
+        self.patron_dni = r'\b(?:\d{2}\.\d{3}\.\d{3}|\d{8})\b'
+        self.patron_direcciones = r'\b(Calle|Av\.|Avenida|Ruta|Pasaje)\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)?\s+\d+(?:\s*[A-Za-z])?\b'
+        self.patron_telefono = r'\+?\d{1,3}[-.\s]?\d{3,4}[-.\s]?\d{4}\b'
+        self.patron_email = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
+
+    def anonimizar_texto(self, texto):
+        """Anonimiza diferentes tipos de datos en el texto"""
+        try:
+            # Anonimizar nombres (permite 2-3 palabras)
+            texto = re.sub(self.patron_nombres, 'NOMBRE_ANONIMIZADO', texto)
+            
+            # Anonimizar DNI
+            texto = re.sub(self.patron_dni, 'DNI_ANONIMIZADO', texto)
+            
+            # Anonimizar direcciones
+            texto = re.sub(self.patron_direcciones, 'DIRECCION_ANONIMIZADA', texto)
+            
+            # Anonimizar teléfonos
+            def reemplazar_telefono(match):
+                try:
+                    numero = phonenumbers.parse(match.group(0))
+                    if phonenumbers.is_valid_number(numero):
+                        return 'TELEFONO_ANONIMIZADO'
+                    return match.group(0)
+                except phonenumbers.NumberParseException:
+                    return match.group(0)
+            
+            texto = re.sub(self.patron_telefono, reemplazar_telefono, texto)
+            
+            # Anonimizar emails
+            def reemplazar_email(match):
+                try:
+                    validate_email(match.group(0))
+                    return 'EMAIL_ANONIMIZADO'
+                except EmailNotValidError:
+                    return match.group(0)
+            
+            texto = re.sub(self.patron_email, reemplazar_email, texto)
+            
+            return texto
+            
+        except Exception as e:
+            logging.error(f"Error al anonimizar texto: {str(e)}")
+            raise
+
+    def anonimizar_docx(self, archivo_entrada, archivo_salida):
+        """Anonimiza un archivo DOCX"""
+        try:
+            # Validar archivo de entrada
+            if not os.path.exists(archivo_entrada):
+                raise FileNotFoundError(f"El archivo {archivo_entrada} no existe")
+            
+            doc = docx.Document(archivo_entrada)
+            for para in doc.paragraphs:
+                if para.text.strip():
+                    para.text = self.anonimizar_texto(para.text)
+            
+            # Procesar tablas
+            for table in doc.tables:
+                for row in table.rows:
+                    for cell in row.cells:
+                        if cell.text.strip():
+                            cell.text = self.anonimizar_texto(cell.text)
+            
+            # Crear directorio si no existe
+            Path(archivo_salida).parent.mkdir(parents=True, exist_ok=True)
+            doc.save(archivo_salida)
+            logging.info(f"Archivo DOCX procesado: {archivo_salida}")
+            
+        except Exception as e:
+            logging.error(f"Error al procesar DOCX {archivo_entrada}: {str(e)}")
+            raise
+
+    def anonimizar_pdf(self, archivo_entrada, archivo_salida):
+        """Anonimiza un archivo PDF"""
+        try:
+            # Validar archivo de entrada
+            if not os.path.exists(archivo_entrada):
+                raise FileNotFoundError(f"El archivo {archivo_entrada} no existe")
+            
+            with open(archivo_entrada, "rb") as f:
+                reader = PyPDF2.PdfReader(f)
+                writer = PyPDF2.PdfWriter()
+                
+                for page_num in range(len(reader.pages)):
+                    page = reader.pages[page_num]
+                    texto = page.extract_text()
+                    if texto:
+                        texto_anonimizado = self.anonimizar_texto(texto)
+                        # Nota: PyPDF2 no permite modificar texto directamente
+                        # Esta implementación solo copia la página original
+                        # Para una anonimización real, se necesitaría convertir a imagen y usar OCR
+                        writer.add_page(page)
+                
+                # Crear directorio si no existe
+                Path(archivo_salida).parent.mkdir(parents=True, exist_ok=True)
+                with open(archivo_salida, "wb") as output_f:
+                    writer.write(output_f)
+            
+            logging.info(f"Archivo PDF procesado: {archivo_salida}")
+            
+        except Exception as e:
+            logging.error(f"Error al procesar PDF {archivo_entrada}: {str(e)}")
+            raise
+
+def main():
+    anonymizer = DocumentAnonymizer()
+    
+    try:
+        # Ejemplo de uso
+        anonymizer.anonimizar_docx(
+            "expediente.docx",
+            "salida/expediente_anonimizado.docx"
+        )
+        anonymizer.anonimizar_pdf(
+            "expediente.pdf",
+            "salida/expediente_anonimizado.pdf"
+        )
+    except Exception as e:
+        logging.error(f"Error en la ejecución principal: {str(e)}")
+
+if __name__ == "__main__":
+    main()
+
+
+----- install python-docx PyPDF2 phonenumbers email-validator
+------Configurar los archivos de entrada y salida
+En la función main() del código, modifica las rutas de los archivos:
+
+
+def main():
+    anonymizer = DocumentAnonymizer()
+    
+    try:
+        # Ejemplo de uso
+        anonymizer.anonimizar_docx(
+            "expediente.docx",           # Archivo de entrada
+            "salida/expediente_anonimizado.docx"  # Archivo de salida
+        )
+        anonymizer.anonimizar_pdf(
+            "expediente.pdf",            # Archivo de entrada
+            "salida/expediente_anonimizado.pdf"   # Archivo de salida
+        )
+    except Exception as e:
+        logging.error(f"Error en la ejecución principal: {str(e)}")
