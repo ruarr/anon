@@ -9,7 +9,8 @@ import spacy
 import tkinter as tk
 from tkinter import filedialog, messagebox
 from docx import Document
-import PyPDF2
+from reportlab.lib.pagesizes import letter
+from reportlab.pdfgen import canvas
 
 # Configuración de logging
 logging.basicConfig(
@@ -98,24 +99,33 @@ class DocumentAnonymizer:
         logging.info(f"Archivo TXT guardado: {archivo_salida}")
 
     def save_as_pdf(self, texto, archivo_salida):
-        """Guarda el texto anonimizado como PDF"""
-        pdf_writer = PyPDF2.PdfWriter()
-        page = PyPDF2.PageObject.create_blank_page(width=595, height=842)  # Tamaño A4 en puntos
-        page.merge_page(PyPDF2.PageObject.create_blank_page(width=595, height=842))
-        pdf_writer.add_page(page)
-        
-        # Nota: PyPDF2 no permite agregar texto directamente, esto es una limitación
-        # Para una solución completa, necesitaríamos usar una biblioteca como reportlab
+        """Guarda el texto anonimizado como PDF usando ReportLab"""
         Path(archivo_salida).parent.mkdir(parents=True, exist_ok=True)
-        with open(archivo_salida, 'wb') as f:
-            pdf_writer.write(f)
+        c = canvas.Canvas(archivo_salida, pagesize=letter)
+        width, height = letter
+        
+        # Configuración básica del texto
+        c.setFont("Helvetica", 12)
+        y_position = height - 40  # Posición inicial desde la parte superior
+        line_height = 14
+        
+        # Dividir el texto en líneas para ajustarlo a la página
+        lines = texto.split('\n')
+        for line in lines:
+            if y_position < 40:  # Si estamos cerca del fondo, crear una nueva página
+                c.showPage()
+                c.setFont("Helvetica", 12)
+                y_position = height - 40
+            c.drawString(40, y_position, line)
+            y_position -= line_height
+        
+        c.save()
         logging.info(f"Archivo PDF guardado: {archivo_salida}")
-        # Advertencia: El PDF generado estará vacío porque PyPDF2 no puede agregar texto directamente
 
 class AnonymizerGUI:
     def __init__(self, root):
         self.root = root
-        self.root.title("Anonimizador de Documentos (DOCX)")
+        self.root.title("Poder Judicial de Jujuy - INLAB -")
         self.root.geometry("600x400")
         self.anonymizer = DocumentAnonymizer()
 
@@ -133,6 +143,7 @@ class AnonymizerGUI:
         # Selección del formato de salida
         tk.Label(root, text="Formato de salida:").grid(row=2, column=0, padx=10, pady=10)
         self.output_format = tk.StringVar(value="DOCX")
+        self.output_format.trace("w", self.update_output_suggestion)  # Actualiza la sugerencia al cambiar el formato
         tk.Radiobutton(root, text="DOCX", variable=self.output_format, value="DOCX").grid(row=2, column=1, padx=5, pady=10, sticky="w")
         tk.Radiobutton(root, text="TXT", variable=self.output_format, value="TXT").grid(row=2, column=1, padx=5, pady=10)
         tk.Radiobutton(root, text="PDF", variable=self.output_format, value="PDF").grid(row=2, column=1, padx=5, pady=10, sticky="e")
@@ -145,7 +156,6 @@ class AnonymizerGUI:
         if file_path:
             self.input_path.delete(0, tk.END)
             self.input_path.insert(0, file_path)
-            # Sugerir un nombre de salida por defecto basado en el formato seleccionado
             self.update_output_suggestion()
 
     def select_output_file(self):
@@ -163,7 +173,7 @@ class AnonymizerGUI:
             self.output_path.delete(0, tk.END)
             self.output_path.insert(0, file_path)
 
-    def update_output_suggestion(self):
+    def update_output_suggestion(self, *args):
         input_file = self.input_path.get()
         if input_file:
             base_name = os.path.splitext(input_file)[0]
@@ -194,7 +204,6 @@ class AnonymizerGUI:
                 self.anonymizer.save_as_txt(texto_anonimizado, output_file)
             elif output_format == "PDF":
                 self.anonymizer.save_as_pdf(texto_anonimizado, output_file)
-                messagebox.showwarning("Advertencia", "El PDF generado no contiene texto debido a limitaciones de PyPDF2. Para una solución completa, considere usar una biblioteca como ReportLab.")
             
             messagebox.showinfo("Éxito", f"El archivo ha sido anonimizado y guardado como {output_format}.")
         except Exception as e:
@@ -208,3 +217,6 @@ def main():
 if __name__ == "__main__":
     main()
 
+
+-----instalar reportlab
+pip install reportlab
