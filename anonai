@@ -1,0 +1,157 @@
+import re
+import docx
+import PyPDF2
+import logging
+import os
+from pathlib import Path
+import phonenumbers
+from email_validator import validate_email, EmailNotValidError
+import spacy
+
+# Configuración de logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    filename='anonimizacion.log'
+)
+
+class DocumentAnonymizer:
+    def __init__(self):
+        # Cargar el modelo de SpaCy para español
+        self.nlp = spacy.load("es_core_news_lg")
+        
+        # Patrones regex existentes
+        self.patron_dni = r'\b(?:\d{2}\.\d{3}\.\d{3}|\d{8})\b'
+        self.patron_direcciones = r'\b(Calle|Av\.|Avenida|Ruta|Pasaje)\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+)?\s+\d+(?:\s*[A-Za-z])?\b'
+        self.patron_telefono = r'\+?\d{1,3}[-.\s]?\d{3,4}[-.\s]?\d{4}\b'
+        self.patron_email = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
+
+    def anonimizar_texto(self, texto):
+        """Anonimiza texto usando IA y regex"""
+        try:
+            # 1. Procesar el texto con SpaCy
+            doc = self.nlp(texto)
+            for ent in doc.ents:
+                if ent.label_ in ["PER", "LOC", "ORG"]:  # Persona, Lugar, Organización
+                    texto = texto.replace(ent.text, f"{ent.label_}_ANONIMIZADO")
+            
+            # 2. Aplicar reglas regex adicionales
+            texto = re.sub(self.patron_dni, 'DNI_ANONIMIZADO', texto)
+            texto = re.sub(self.patron_direcciones, 'DIRECCION_ANONIMIZADA', texto)
+            
+            # Anonimizar teléfonos
+            def reemplazar_telefono(match):
+                try:
+                    numero = phonenumbers.parse(match.group(0))
+                    if phonenumbers.is_valid_number(numero):
+                        return 'TELEFONO_ANONIMIZADO'
+                    return match.group(0)
+                except phonenumbers.NumberParseException:
+                    return match.group(0)
+            texto = re.sub(self.patron_telefono, reemplazar_telefono, texto)
+            
+            # Anonimizar emails
+            def reemplazar_email(match):
+                try:
+                    validate_email(match.group(0))
+                    return 'EMAIL_ANONIMIZADO'
+                except EmailNotValidError:
+                    return match.group(0)
+            texto = re.sub(self.patron_email, reemplazar_email, texto)
+            
+            return texto
+            
+        except Exception as e:
+            logging.error(f"Error al anonimizar texto: {str(e)}")
+            raise
+
+    def anonimizar_docx(self, archivo_entrada, archivo_salida):
+        """Anonimiza un archivo DOCX"""
+        try:
+            if not os.path.exists(archivo_entrada):
+                raise FileNotFoundError(f"El archivo {archivo_entrada} no existe")
+            
+            doc = docx.Document(archivo_entrada)
+            for para in doc.paragraphs:
+                if para.text.strip():
+                    para.text = self.anonimizar_texto(para.text)
+            
+            for table in doc.tables:
+                for row in table.rows:
+                    for cell in row.cells:
+                        if cell.text.strip():
+                            cell.text = self.anonimizar_texto(cell.text)
+            
+            Path(archivo_salida).parent.mkdir(parents=True, exist_ok=True)
+            doc.save(archivo_salida)
+            logging.info(f"Archivo DOCX procesado: {archivo_salida}")
+            
+        except Exception as e:
+            logging.error(f"Error al procesar DOCX {archivo_entrada}: {str(e)}")
+            raise
+
+    def anonimizar_pdf(self, archivo_entrada, archivo_salida):
+        """Anonimiza un archivo PDF"""
+        try:
+            if not os.path.exists(archivo_entrada):
+                raise FileNotFoundError(f"El archivo {archivo_entrada} no existe")
+            
+            with open(archivo_entrada, "rb") as f:
+                reader = PyPDF2.PdfReader(f)
+                writer = PyPDF2.PdfWriter()
+                
+                for page_num in range(len(reader.pages)):
+                    page = reader.pages[page_num]
+                    texto = page.extract_text()
+                    if texto:
+                        texto_anonimizado = self.anonimizar_texto(texto)
+                        # Nota: PyPDF2 no permite modificar texto directamente
+                        writer.add_page(page)
+                
+                Path(archivo_salida).parent.mkdir(parents=True, exist_ok=True)
+                with open(archivo_salida, "wb") as output_f:
+                    writer.write(output_f)
+            
+            logging.info(f"Archivo PDF procesado: {archivo_salida}")
+            
+        except Exception as e:
+            logging.error(f"Error al procesar PDF {archivo_entrada}: {str(e)}")
+            raise
+
+def main():
+    anonymizer = DocumentAnonymizer()
+    
+    try:
+        anonymizer.anonimizar_docx(
+            "CAMARA DEAPELACIONES EJECUCIONES PRENDARIAS CLAUSULAS DE REAJUSTE.docx",
+            "CAMARA DEAPELACIONES EJECUCIONES PRENDARIAS CLAUSULAS DE REAJUSTEanon.docx"
+        )
+        anonymizer.anonimizar_pdf(
+            "Expediente_C-146606_2019.pdf",
+            "Expediente_C-146606_2019anon.pdf"
+        )
+    except Exception as e:
+        logging.error(f"Error en la ejecución principal: {str(e)}")
+
+if __name__ == "__main__":
+    main()
+
+
+------levantar entorno
+source mi_entorno/bin/activate
+------instalar biblioteca spacy}
+pip3 install spacy
+
+------descargar modelo spacy
+python -m spacy download es_core_news_lg
+
+-------verfificar la instalacion del modelo
+python -c "import spacy; nlp = spacy.load('es_core_news_lg'); print('Modelo cargado correctamente')"
+
+--------probar programa
+python anonimizador.py
+
+
+
+
+
